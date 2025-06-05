@@ -2,6 +2,8 @@ services:
   - type: web
     name: video-generator-app
     env: python
-    buildCommand: "pip install -r requirements.txt"
+    buildCommand: |
+      apt-get update && apt-get install -y ffmpeg
+      pip install -r requirements.txt
     startCommand: "gunicorn app:app"
     plan: free
