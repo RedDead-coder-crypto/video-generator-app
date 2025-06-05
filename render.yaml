@@ -1,9 +1,12 @@
 services:
   - type: web
+    # Name deines Dienstes:
     name: video-generator-app
+    # Python‐Umgebung
     env: python
     buildCommand: |
       apt-get update && apt-get install -y ffmpeg
       pip install -r requirements.txt
+      pip install moviepy
     startCommand: "gunicorn app:app"
     plan: free
