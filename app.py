@@ -147,7 +147,6 @@ Structure the script as a list of five facts, each with a short explanation.
     if not facts:
         return jsonify({"status": "error", "step": "Fakten", "message": "Keine Fakten im Skript gefunden."})
 
-    clips_paths = []
     trimmed_paths = []
     for idx, fact in enumerate(facts, start=1):
         parts = fact.split()
@@ -162,23 +161,27 @@ Structure the script as a list of five facts, each with a short explanation.
                 clip_path = os.path.join(app.config['CLIPS_FOLDER'], clip_filename)
                 with open(clip_path, "wb") as cf:
                     cf.write(requests.get(video_file_url).content)
+
+                # 5) Echten Clip trimmen
+                trimmed = os.path.join(app.config['CLIPS_FOLDER'], f"trim_{idx}.mp4")
+                try:
+                    subprocess.run(
+                        ['ffmpeg', '-y', '-i', clip_path, '-t', '5', '-c', 'copy', trimmed],
+                        check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                    )
+                    trimmed_paths.append(trimmed)
+                except subprocess.CalledProcessError as e:
+                    return jsonify({
+                        "status": "error",
+                        "step": f"ffmpeg-Trim Clip {idx}",
+                        "message": e.stderr.decode('utf-8', errors='ignore')
+                    })
             else:
-                clip_path = os.path.join(app.root_path, 'static', 'sample.mp4')
-            clips_paths.append(clip_path)
+                # Fallback: Dummy-Clip ohne Trimmen
+                sample_clip = os.path.join(app.root_path, 'static', 'sample.mp4')
+                trimmed_paths.append(sample_clip)
         except Exception as e:
             return jsonify({"status": "error", "step": f"Pexels Clip {idx}", "message": str(e)})
-
-        # 5) Trimmen mit ffmpeg
-        trimmed = os.path.join(app.config['CLIPS_FOLDER'], f"trim_{idx}.mp4")
-        try:
-            subprocess.run(['ffmpeg', '-y', '-i', clip_path, '-t', '5', '-c', 'copy', trimmed], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            trimmed_paths.append(trimmed)
-        except subprocess.CalledProcessError as e:
-            return jsonify({
-                "status": "error",
-                "step": f"ffmpeg-Trim Clip {idx}",
-                "message": e.stderr.decode('utf-8', errors='ignore')
-            })
 
     # 6) Liste für Konkatenerierung erstellen
     list_file = os.path.join(app.config['CLIPS_FOLDER'], 'list.txt')
@@ -191,7 +194,10 @@ Structure the script as a list of five facts, each with a short explanation.
 
     concat_path = os.path.join(app.config['CLIPS_FOLDER'], 'concat.mp4')
     try:
-        subprocess.run(['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', list_file, '-c', 'copy', concat_path], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(
+            ['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', list_file, '-c', 'copy', concat_path],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
     except subprocess.CalledProcessError as e:
         return jsonify({
             "status": "error",
@@ -203,7 +209,10 @@ Structure the script as a list of five facts, each with a short explanation.
     output_filename = f"{uuid.uuid4()}.mp4"
     output_path = os.path.join(app.config['VIDEO_FOLDER'], output_filename)
     try:
-        subprocess.run(['ffmpeg', '-y', '-i', concat_path, '-i', audio_path, '-c:v', 'copy', '-c:a', 'aac', '-shortest', output_path], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(
+            ['ffmpeg', '-y', '-i', concat_path, '-i', audio_path, '-c:v', 'copy', '-c:a', 'aac', '-shortest', output_path],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
     except subprocess.CalledProcessError as e:
         return jsonify({
             "status": "error",
