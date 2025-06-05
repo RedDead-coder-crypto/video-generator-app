@@ -80,7 +80,7 @@ def pick_voice_by_topic(topic_text):
             if cat in tokens:
                 return voice["voice_id"], voice["name"]
     for voice in voices:
-        for cat in voic e.get("categories", []):
+        for cat in voice.get("categories", []):
             if any(cat in token for token in tokens):
                 return voice["voice_id"], voice["name"]
     return voices[0]["voice_id"], voices[0]["name"]
@@ -120,7 +120,6 @@ def generate():
             "message": f"Ungültige Anfrage: {e.user_message or str(e)}"
         }), 400
     except openai.error.OpenAIError as e:
-        # Quota exceeded oder andere API-Fehler
         code = getattr(e, "code", None)
         if code == "insufficient_quota":
             return jsonify({
@@ -139,7 +138,7 @@ def generate():
     # 2) Stimme auswählen
     voice_id, voice_name = pick_voice_by_topic(topic)
     if not voice_id:
-        return jsonify({"status": "error", "step": "Stimmwahl", "message": "Keine passende Stimme gefunden."})
+        return jsonify({"status": "error", "step": "Stimmwahl", "message": "Keine passende Stimme gefunden."}), 500
 
     # 3) TTS anfordern
     tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
