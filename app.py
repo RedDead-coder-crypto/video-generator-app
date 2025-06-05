@@ -97,13 +97,13 @@ def generate():
         return jsonify({"status": "error", "message": "Keine verfügbaren Themen."})
 
     # 1) Skript generieren
-    script_prompt = f\"\"\"
-Write a short, family-friendly, legally safe and copyrighted-compliant
-video script (about 100 words) on the topic: \"{topic}\".
-Start with a legal disclaimer: \"This video is for educational purposes only.
-No professional advice is given. Consult experts if needed.\"
-Structure the script as a list of five facts, each with a short explanation.
-    \"\"\"
+    script_prompt = (
+        f"Write a short, family-friendly, legally safe and copyrighted-compliant "
+        f"video script (about 100 words) on the topic: \"{topic}\". "
+        f"Start with a legal disclaimer: \"This video is for educational purposes only. "
+        f"No professional advice is given. Consult experts if needed.\" "
+        f"Structure the script as a list of five facts, each with a short explanation."
+    )
     try:
         ai_response = openai.ChatCompletion.create(
             model="gpt-4",
@@ -150,7 +150,10 @@ Structure the script as a list of five facts, each with a short explanation.
     trimmed_paths = []
     for idx, fact in enumerate(facts, start=1):
         parts = fact.split()
-        keyword = parts[1].strip().strip(".").lower() if len(parts) > 1 else topic.split()[0].lower()
+        if len(parts) > 1:
+            keyword = parts[1].strip().strip(".").lower()
+        else:
+            keyword = topic.split()[0].lower()
         pexels_url = f"https://api.pexels.com/videos/search?query={keyword}&per_page=1"
         try:
             pex_resp = requests.get(pexels_url, headers={"Authorization": PEXELS_API_KEY})
