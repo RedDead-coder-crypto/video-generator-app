@@ -25,25 +25,8 @@
     <hr/>
 
     <h3 class="mt-5">Erstellte Videos:</h3>
-    <div class="row">
-      {% for vid in videos %}
-      <div class="col-md-4 mb-4">
-        <div class="card">
-          <video class="card-img-top" controls>
-            <source src="{{ url_for('get_video', filename=vid) }}" type="video/mp4" />
-            Dein Browser unterstützt dieses Video-Format nicht.
-          </video>
-          <div class="card-body">
-            <h5 class="card-title">{{ vid }}</h5>
-          </div>
-        </div>
-      </div>
-      {% endfor %}
-      {% if not videos %}
-      <div class="col-12">
-        <p class="text-muted">Noch keine Videos vorhanden.</p>
-      </div>
-      {% endif %}
+    <div id="videos-container" class="row">
+      <!-- Hier werden dynamisch Video-Karten eingefügt -->
     </div>
 
     <hr/>
@@ -78,16 +61,92 @@
     crossorigin="anonymous">
   </script>
   <script>
-    document.getElementById('createBtn').addEventListener('click', () => {
-      document.getElementById('status').innerText = 'Generating video...';
-      fetch('/generate', { method: 'POST' })
-        .then(response => response.json())
+    // Hilfsfunktion: Videos von /videos_list abrufen und in #videos-container anzeigen
+    function loadVideos() {
+      fetch('/videos_list')
+        .then(res => res.json())
         .then(data => {
-          document.getElementById('status').innerText = data.message;
-          if (data.status === 'success') {
-            setTimeout(() => location.reload(), 3000);
+          const container = document.getElementById('videos-container');
+          container.innerHTML = ''; // Alte Einträge löschen
+          if (data.videos && data.videos.length) {
+            data.videos.forEach(filename => {
+              const col = document.createElement('div');
+              col.className = 'col-md-4 mb-4';
+              col.innerHTML = `
+                <div class="card">
+                  <video class="card-img-top" controls>
+                    <source src="/videos/${filename}" type="video/mp4" />
+                    Dein Browser unterstützt dieses Video-Format nicht.
+                  </video>
+                  <div class="card-body">
+                    <h5 class="card-title">${filename}</h5>
+                  </div>
+                </div>`;
+              container.appendChild(col);
+            });
+          } else {
+            // Falls keine Videos da sind, Hinweis texten
+            const empty = document.createElement('div');
+            empty.className = 'col-12';
+            empty.innerHTML = `<p class="text-muted">Noch keine Videos vorhanden.</p>`;
+            container.appendChild(empty);
           }
+        })
+        .catch(err => {
+          console.error('Fehler beim Laden der Videos:', err);
         });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      // Initial einmal Videos laden
+      loadVideos();
+
+      document.getElementById('createBtn').addEventListener('click', () => {
+        const statusEl = document.getElementById('status');
+        statusEl.innerText = 'Generating video...';
+        document.getElementById('createBtn').disabled = true;
+
+        // Schritt 1: /generate anfordern
+        fetch('/generate', { method: 'POST' })
+          .then(response => response.json())
+          .then(data => {
+            if (data.status === 'success') {
+              statusEl.innerText = data.message;
+              // Dateiname extrahieren
+              const createdName = data.message.split('Video erstellt: ')[1].split(' ')[0];
+
+              // Schritt 2: Sekündlich prüfen, ob das neue Video in der Liste ist
+              const intervalId = setInterval(() => {
+                fetch('/videos_list')
+                  .then(res => res.json())
+                  .then(listData => {
+                    if (listData.videos && listData.videos.includes(createdName)) {
+                      // Sobald enthalten, Liste neu laden und Intervall stoppen
+                      loadVideos();
+                      clearInterval(intervalId);
+                      statusEl.innerText = 'Video ist fertig und erschienen.';
+                      document.getElementById('createBtn').disabled = false;
+                    }
+                  })
+                  .catch(err => {
+                    console.error('Fehler beim Polling:', err);
+                    clearInterval(intervalId);
+                    statusEl.innerText = 'Fehler beim Polling der Videos.';
+                    document.getElementById('createBtn').disabled = false;
+                  });
+              }, 1000); // jede Sekunde prüfen
+            } else {
+              // Falls status != success, sofort Fehlermeldung anzeigen
+              statusEl.innerText = `Error: ${data.step} – ${data.message}`;
+              document.getElementById('createBtn').disabled = false;
+            }
+          })
+          .catch(err => {
+            console.error('Fetch-Fehler:', err);
+            statusEl.innerText = 'Netzwerk- oder Server-Fehler beim Erstellen.';
+            document.getElementById('createBtn').disabled = false;
+          });
+      });
     });
   </script>
 </body>
