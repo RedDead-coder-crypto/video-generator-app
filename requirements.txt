@@ -1,2 +1,6 @@
 flask
 gunicorn
+moviepy
+requests
+openai
+python-dotenv
