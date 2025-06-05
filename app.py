@@ -122,20 +122,19 @@ def generate():
                 max_tokens=300
             )
             script_text = ai_response.choices[0].message.content.strip()
-        except openai.error.RateLimitError as e:
-            # 429 QuotaExceeded
+        except openai.RateLimitError:
             return jsonify({
                 "status": "error",
                 "step": "OpenAI-Skript",
                 "message": "OpenAI-Kontingent erschöpft. Bitte prüfe Plan und Abrechnung."
             }), 429
-        except openai.error.InvalidRequestError as e:
+        except openai.InvalidRequestError as e:
             return jsonify({
                 "status": "error",
                 "step": "OpenAI-Skript",
                 "message": f"Ungültige Anfrage: {e.user_message or str(e)}"
             }), 400
-        except openai.error.OpenAIError as e:
+        except openai.OpenAIError as e:
             return jsonify({
                 "status": "error",
                 "step": "OpenAI-Skript",
