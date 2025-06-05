@@ -14,6 +14,7 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 PEXELS_API_KEY = os.getenv('PEXELS_API_KEY')
 
+# Für openai>=1.0.0 setzen wir den API-Schlüssel so:
 openai.api_key = OPENAI_API_KEY
 
 app = Flask(__name__)
@@ -105,7 +106,8 @@ def generate():
         f"Structure the script as a list of five facts, each with a short explanation."
     )
     try:
-        ai_response = openai.ChatCompletion.create(
+        # Neu: openai.chat.completions.create statt ChatCompletion.create
+        ai_response = openai.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": script_prompt}],
             temperature=0.7,
