@@ -9,15 +9,16 @@ import traceback
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from dotenv import load_dotenv
 
-# Umgebungsladung
+# 1. ENV‐Variablen laden
 load_dotenv()
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 PEXELS_API_KEY = os.getenv('PEXELS_API_KEY')
 
-# OpenAI-API-Key setzen
+# 2. OpenAI‐Key setzen
 openai.api_key = OPENAI_API_KEY
 
+# 3. Flask‐App und Verzeichnisse konfigurieren
 app = Flask(__name__)
 app.config['VIDEO_FOLDER'] = os.path.join(app.root_path, 'static', 'videos')
 app.config['CLIPS_FOLDER'] = os.path.join(app.root_path, 'static', 'clips')
@@ -27,6 +28,7 @@ os.makedirs(app.config['CLIPS_FOLDER'], exist_ok=True)
 TOPICS_FILE = os.path.join(app.root_path, 'topics_history.json')
 VOICES_FILE = os.path.join(app.root_path, 'voices.json')
 
+# 4. Hilfsfunktionen zum Laden/Speichern von JSON
 def load_json(path):
     if not os.path.exists(path):
         return []
@@ -40,6 +42,7 @@ def save_json(path, data):
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
+# 5. Thema auswählen basierend auf Score/Views
 def choose_next_topic():
     history = load_json(TOPICS_FILE)
     if not history:
@@ -70,6 +73,7 @@ def update_topic_score_and_reset_views(chosen_topic, increment=1):
     history.append({"topic": chosen_topic, "score": increment, "views": 0})
     save_json(TOPICS_FILE, history)
 
+# 6. Stimme auswählen anhand von Kategorien
 def pick_voice_by_topic(topic_text):
     voices = load_json(VOICES_FILE)
     if not voices:
@@ -86,20 +90,23 @@ def pick_voice_by_topic(topic_text):
                 return voice["voice_id"], voice["name"]
     return voices[0]["voice_id"], voices[0]["name"]
 
+# 7. Startseite: zeigt vorhandene Videos + Themen-Tabelle
 @app.route("/")
 def index():
     video_files = os.listdir(app.config['VIDEO_FOLDER'])
     topics_data = load_json(TOPICS_FILE)
     return render_template("index.html", videos=video_files, topics=topics_data)
 
+# 8. Route zum Generieren eines neuen Videos
 @app.route("/generate", methods=["POST"])
 def generate():
     try:
+        # 8.1 Thema auswählen
         topic = choose_next_topic()
         if not topic:
             return jsonify({"status": "error", "message": "Keine verfügbaren Themen."}), 400
 
-        # 1) Skript generieren (gpt-3.5-turbo)
+        # 8.2 Skript per gpt-3.5-turbo erzeugen
         script_prompt = (
             f"Write a short, family-friendly, legally safe and copyrighted-compliant "
             f"video script (about 100 words) on the topic: \"{topic}\". "
@@ -107,20 +114,44 @@ def generate():
             f"No professional advice is given. Consult experts if needed.\" "
             f"Structure the script as a list of five facts, each with a short explanation."
         )
-        ai_response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": script_prompt}],
-            temperature=0.7,
-            max_tokens=300
-        )
-        script_text = ai_response.choices[0].message.content.strip()
+        try:
+            ai_response = openai.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": script_prompt}],
+                temperature=0.7,
+                max_tokens=300
+            )
+            script_text = ai_response.choices[0].message.content.strip()
+        except openai.error.RateLimitError as e:
+            # 429 QuotaExceeded
+            return jsonify({
+                "status": "error",
+                "step": "OpenAI-Skript",
+                "message": "OpenAI-Kontingent erschöpft. Bitte prüfe Plan und Abrechnung."
+            }), 429
+        except openai.error.InvalidRequestError as e:
+            return jsonify({
+                "status": "error",
+                "step": "OpenAI-Skript",
+                "message": f"Ungültige Anfrage: {e.user_message or str(e)}"
+            }), 400
+        except openai.error.OpenAIError as e:
+            return jsonify({
+                "status": "error",
+                "step": "OpenAI-Skript",
+                "message": f"OpenAI-Fehler: {e.user_message or str(e)}"
+            }), 500
 
-        # 2) Stimme auswählen
+        # 8.3 Passende Stimme auswählen
         voice_id, voice_name = pick_voice_by_topic(topic)
         if not voice_id:
-            return jsonify({"status": "error", "step": "Stimmwahl", "message": "Keine passende Stimme gefunden."}), 500
+            return jsonify({
+                "status": "error",
+                "step": "Stimmwahl",
+                "message": "Keine passende Stimme gefunden."
+            }), 500
 
-        # 3) TTS anfordern
+        # 8.4 TTS per ElevenLabs
         tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
         tts_headers = {
             "xi-api-key": ELEVENLABS_API_KEY,
@@ -139,10 +170,14 @@ def generate():
         with open(audio_path, "wb") as f:
             f.write(tts_resp.content)
 
-        # 4) Fakten extrahieren und Clips holen
+        # 8.5 Fakten extrahieren und Pexels‐Clips holen
         facts = [line for line in script_text.splitlines() if line.strip().startswith(("1.", "2.", "3.", "4.", "5."))]
         if not facts:
-            return jsonify({"status": "error", "step": "Fakten", "message": "Keine Fakten im Skript gefunden."}), 400
+            return jsonify({
+                "status": "error",
+                "step": "Fakten",
+                "message": "Keine Fakten im Skript gefunden."
+            }), 400
 
         trimmed_paths = []
         for idx, fact in enumerate(facts, start=1):
@@ -162,7 +197,7 @@ def generate():
                 with open(clip_path, "wb") as cf:
                     cf.write(requests.get(video_file_url).content)
 
-                # 5) Echten Clip trimmen
+                # 8.5.1 Clip auf 5 Sekunden trimmen
                 trimmed = os.path.join(app.config['CLIPS_FOLDER'], f"trim_{idx}.mp4")
                 subprocess.run(
                     ['ffmpeg', '-y', '-i', clip_path, '-t', '5', '-c', 'copy', trimmed],
@@ -170,11 +205,11 @@ def generate():
                 )
                 trimmed_paths.append(trimmed)
             else:
-                # Fallback: Dummy-Clip ohne Trimmen
+                # 8.5.2 Kein Clip gefunden, Dummy‐Fallback
                 sample_clip = os.path.join(app.root_path, 'static', 'sample.mp4')
                 trimmed_paths.append(sample_clip)
 
-        # 6) Liste für Konkatenerierung erstellen
+        # 8.6 Dateiliste für ffmpeg‐Concat erstellen
         list_file = os.path.join(app.config['CLIPS_FOLDER'], 'list.txt')
         with open(list_file, 'w') as f:
             for p in trimmed_paths:
@@ -186,7 +221,7 @@ def generate():
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
 
-        # 7) Audio und Video kombinieren
+        # 8.7 Audio und Video zusammenführen
         output_filename = f"{uuid.uuid4()}.mp4"
         output_path = os.path.join(app.config['VIDEO_FOLDER'], output_filename)
         subprocess.run(
@@ -194,10 +229,10 @@ def generate():
             check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
 
-        # Debug-Log: wo wird gespeichert
+        # Debug‐Log zum Speichern
         print(f"DEBUG: Speichere Video hier: {output_path}")
 
-        # 8) Thema updaten
+        # 8.8 Thema‐Statistik aktualisieren
         update_topic_score_and_reset_views(topic, increment=1)
 
         return jsonify({
@@ -207,25 +242,23 @@ def generate():
         }), 200
 
     except Exception as e:
-        # Vollständigen Traceback in die Render-Logs schreiben
+        # Vollständigen Traceback in Render-Logs ausgeben
         tb = traceback.format_exc()
         print("=== EXCEPTION in /generate ===")
         print(tb)
         print("=== END EXCEPTION ===")
 
-        # Dem Client ebenfalls den Fehler-Traceback (gekürzt) senden
+        # JSON‐Antwort mit Status 500 + letzte 5 Zeilen des Tracebacks
         return jsonify({
             "status": "error",
             "step": "Unbekannter Fehler in /generate",
             "message": str(e),
-            "traceback": tb.splitlines()[-5:]  # nur letzte 5 Zeilen des Tracebacks
+            "traceback": tb.splitlines()[-5:]
         }), 500
 
+# 9. Neue Route, um alle Videos als JSON‐Liste zu liefern
 @app.route("/videos_list", methods=["GET"])
 def videos_list():
-    """
-    Gibt alle .mp4-Dateien in static/videos/ als JSON-Array zurück.
-    """
     video_dir = app.config["VIDEO_FOLDER"]
     try:
         files = [f for f in os.listdir(video_dir) if f.lower().endswith(".mp4")]
@@ -233,6 +266,7 @@ def videos_list():
         files = []
     return jsonify({"videos": files})
 
+# 10. Route, um ein einzelnes Video auszuliefern
 @app.route('/videos/<filename>')
 def get_video(filename):
     return send_from_directory(app.config['VIDEO_FOLDER'], filename)
