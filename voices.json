@@ -1,22 +1,6 @@
 [
-  {
-    "name": "Alex (männlich, neutral)",
-    "voice_id": "VOICE_ID_ALEX",
-    "categories": ["tech", "science", "business"]
-  },
-  {
-    "name": "Sophie (weiblich, freundlich)",
-    "voice_id": "VOICE_ID_SOPHIE",
-    "categories": ["education", "lifestyle", "health"]
-  },
-  {
-    "name": "Daniel (männlich, erzählerisch)",
-    "voice_id": "VOICE_ID_DANIEL",
-    "categories": ["history", "storytelling", "culture"]
-  },
-  {
-    "name": "Emma (weiblich, lebhaft)",
-    "voice_id": "VOICE_ID_EMMA",
-    "categories": ["kids", "funfacts", "animals"]
-  }
+  {"name": "Alex (männlich, neutral)", "voice_id": "VOICE_ID_ALEX", "categories": ["tech", "science", "business"]},
+  {"name": "Sophie (weiblich, freundlich)", "voice_id": "VOICE_ID_SOPHIE", "categories": ["education", "lifestyle", "health"]},
+  {"name": "Daniel (männlich, erzählerisch)", "voice_id": "VOICE_ID_DANIEL", "categories": ["history", "storytelling", "culture"]},
+  {"name": "Emma (weiblich, lebhaft)", "voice_id": "VOICE_ID_EMMA", "categories": ["kids", "funfacts", "animals"]}
 ]

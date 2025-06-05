@@ -5,9 +5,8 @@ import json
 import random
 import openai
 import requests
+import subprocess
 from dotenv import load_dotenv
-from shutil import copyfile
-from moviepy.editor import VideoFileClip, concatenate_videoclips
 
 # Load environment variables
 load_dotenv()
@@ -98,12 +97,13 @@ def generate():
     topic = choose_next_topic()
     if not topic:
         return jsonify({"status": "error", "message": "Keine verfügbaren Themen."})
+
     script_prompt = f"""
-    Write a short, family-friendly, legally safe and copyrighted-compliant 
-    video script (about 100 words) on the topic: "{topic}". 
-    Start with a legal disclaimer: "This video is for educational purposes only. 
-    No professional advice is given. Consult experts if needed." 
-    Structure the script as a list of five facts, each with a short explanation.
+Write a short, family-friendly, legally safe and copyrighted-compliant
+video script (about 100 words) on the topic: "{topic}".
+Start with a legal disclaimer: "This video is for educational purposes only.
+No professional advice is given. Consult experts if needed."
+Structure the script as a list of five facts, each with a short explanation.
     """
     try:
         ai_response = openai.ChatCompletion.create(
@@ -115,9 +115,11 @@ def generate():
         script_text = ai_response.choices[0].message.content.strip()
     except Exception as e:
         return jsonify({"status": "error", "message": f"OpenAI-Fehler: {e}"})
+
     voice_id, voice_name = pick_voice_by_topic(topic)
     if not voice_id:
         return jsonify({"status": "error", "message": "Keine passende Stimme gefunden."})
+
     tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
     tts_headers = {
         "xi-api-key": ELEVENLABS_API_KEY,
@@ -135,12 +137,14 @@ def generate():
     audio_path = os.path.join(app.config['CLIPS_FOLDER'], audio_filename)
     with open(audio_path, "wb") as f:
         f.write(tts_resp.content)
+
     facts = [
         line for line in script_text.splitlines()
         if line.strip().startswith(("1.", "2.", "3.", "4.", "5."))
     ]
     clips_paths = []
-    for fact in facts:
+    trimmed_paths = []
+    for idx, fact in enumerate(facts, start=1):
         parts = fact.split()
         if len(parts) > 1:
             keyword = parts[1].strip().strip(".").lower()
@@ -157,24 +161,36 @@ def generate():
             clip_data = requests.get(video_file_url).content
             with open(clip_path, "wb") as cf:
                 cf.write(clip_data)
-            clips_paths.append(clip_path)
         else:
-            clips_paths.append(os.path.join(app.root_path, 'static', 'sample.mp4'))
-    try:
-        video_clips = []
-        for c in clips_paths:
-            clip = VideoFileClip(c)
-            duration = min(clip.duration, 5)
-            video_clips.append(clip.subclip(0, duration))
-        final_clip = concatenate_videoclips(video_clips, method="compose")
-        final_audio = VideoFileClip(audio_path).audio
-        final_clip = final_clip.set_audio(final_audio)
-        output_filename = f"{uuid.uuid4()}.mp4"
-        output_path = os.path.join(app.config['VIDEO_FOLDER'], output_filename)
-        final_clip.write_videofile(output_path, codec="libx264", audio_codec="aac", verbose=False, logger=None)
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"Fehler bei der Videoerstellung: {e}"})
+            clip_path = os.path.join(app.root_path, 'static', 'sample.mp4')
+        clips_paths.append(clip_path)
+
+        # Trim to 5 seconds
+        trimmed = os.path.join(app.config['CLIPS_FOLDER'], f"trim_{idx}.mp4")
+        subprocess.run([
+            'ffmpeg', '-y', '-i', clip_path, '-t', '5', '-c', 'copy', trimmed
+        ], check=True)
+        trimmed_paths.append(trimmed)
+
+    # Create file list for concat
+    list_file = os.path.join(app.config['CLIPS_FOLDER'], 'list.txt')
+    with open(list_file, 'w') as f:
+        for p in trimmed_paths:
+            f.write(f"file '{p}'\n")
+
+    concat_path = os.path.join(app.config['CLIPS_FOLDER'], 'concat.mp4')
+    subprocess.run([
+        'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', list_file, '-c', 'copy', concat_path
+    ], check=True)
+
+    output_filename = f"{uuid.uuid4()}.mp4"
+    output_path = os.path.join(app.config['VIDEO_FOLDER'], output_filename)
+    subprocess.run([
+        'ffmpeg', '-y', '-i', concat_path, '-i', audio_path, '-c:v', 'copy', '-c:a', 'aac', '-shortest', output_path
+    ], check=True)
+
     update_topic_score_and_reset_views(topic, increment=1)
+
     return jsonify({
         "status": "success",
         "message": f"Video erstellt: {output_filename} mit Stimme: {voice_name}",
