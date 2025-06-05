@@ -253,6 +253,18 @@ def generate():
         "topic": topic
     }), 200
 
+@app.route("/videos_list", methods=["GET"])
+def videos_list():
+    """
+    Gibt alle .mp4-Dateien in static/videos/ als JSON-Array zurück.
+    """
+    video_dir = app.config["VIDEO_FOLDER"]
+    try:
+        files = [f for f in os.listdir(video_dir) if f.lower().endswith(".mp4")]
+    except Exception:
+        files = []
+    return jsonify({"videos": files})
+
 @app.route('/videos/<filename>')
 def get_video(filename):
     return send_from_directory(app.config['VIDEO_FOLDER'], filename)
