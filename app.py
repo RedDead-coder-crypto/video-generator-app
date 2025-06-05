@@ -80,7 +80,7 @@ def pick_voice_by_topic(topic_text):
             if cat in tokens:
                 return voice["voice_id"], voice["name"]
     for voice in voices:
-        for cat in voice.get("categories", []):
+        for cat in voic e.get("categories", []):
             if any(cat in token for token in tokens):
                 return voice["voice_id"], voice["name"]
     return voices[0]["voice_id"], voices[0]["name"]
@@ -97,7 +97,7 @@ def generate():
     if not topic:
         return jsonify({"status": "error", "message": "Keine verfügbaren Themen."})
 
-    # 1) Skript generieren
+    # 1) Skript generieren (gpt-3.5-turbo)
     script_prompt = (
         f"Write a short, family-friendly, legally safe and copyrighted-compliant "
         f"video script (about 100 words) on the topic: \"{topic}\". "
@@ -106,7 +106,6 @@ def generate():
         f"Structure the script as a list of five facts, each with a short explanation."
     )
     try:
-        # Modell auf gpt-3.5-turbo umgestellt
         ai_response = openai.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": script_prompt}],
@@ -114,8 +113,28 @@ def generate():
             max_tokens=300
         )
         script_text = ai_response.choices[0].message.content.strip()
+    except openai.error.InvalidRequestError as e:
+        return jsonify({
+            "status": "error",
+            "step": "OpenAI-Skript",
+            "message": f"Ungültige Anfrage: {e.user_message or str(e)}"
+        }), 400
+    except openai.error.OpenAIError as e:
+        # Quota exceeded oder andere API-Fehler
+        code = getattr(e, "code", None)
+        if code == "insufficient_quota":
+            return jsonify({
+                "status": "error",
+                "step": "OpenAI-Skript",
+                "message": "Dein OpenAI-Kontingent ist erschöpft. Bitte prüfe Plan und Abrechnung."
+            }), 429
+        return jsonify({
+            "status": "error",
+            "step": "OpenAI-Skript",
+            "message": f"OpenAI-Fehler: {e.user_message or str(e)}"
+        }), 500
     except Exception as e:
-        return jsonify({"status": "error", "step": "OpenAI-Skript", "message": str(e)})
+        return jsonify({"status": "error", "step": "OpenAI-Skript", "message": str(e)}), 500
 
     # 2) Stimme auswählen
     voice_id, voice_name = pick_voice_by_topic(topic)
@@ -142,12 +161,12 @@ def generate():
         with open(audio_path, "wb") as f:
             f.write(tts_resp.content)
     except Exception as e:
-        return jsonify({"status": "error", "step": "TTS", "message": str(e)})
+        return jsonify({"status": "error", "step": "TTS", "message": str(e)}), 500
 
     # 4) Fakten extrahieren und Clips holen
     facts = [line for line in script_text.splitlines() if line.strip().startswith(("1.", "2.", "3.", "4.", "5."))]
     if not facts:
-        return jsonify({"status": "error", "step": "Fakten", "message": "Keine Fakten im Skript gefunden."})
+        return jsonify({"status": "error", "step": "Fakten", "message": "Keine Fakten im Skript gefunden."}), 400
 
     trimmed_paths = []
     for idx, fact in enumerate(facts, start=1):
@@ -156,6 +175,7 @@ def generate():
             keyword = parts[1].strip().strip(".").lower()
         else:
             keyword = topic.split()[0].lower()
+
         pexels_url = f"https://api.pexels.com/videos/search?query={keyword}&per_page=1"
         try:
             pex_resp = requests.get(pexels_url, headers={"Authorization": PEXELS_API_KEY})
@@ -180,13 +200,13 @@ def generate():
                         "status": "error",
                         "step": f"ffmpeg-Trim Clip {idx}",
                         "message": e.stderr.decode('utf-8', errors='ignore')
-                    })
+                    }), 500
             else:
                 # Fallback: Dummy-Clip ohne Trimmen
                 sample_clip = os.path.join(app.root_path, 'static', 'sample.mp4')
                 trimmed_paths.append(sample_clip)
         except Exception as e:
-            return jsonify({"status": "error", "step": f"Pexels Clip {idx}", "message": str(e)})
+            return jsonify({"status": "error", "step": f"Pexels Clip {idx}", "message": str(e)}), 500
 
     # 6) Liste für Konkatenerierung erstellen
     list_file = os.path.join(app.config['CLIPS_FOLDER'], 'list.txt')
@@ -195,7 +215,7 @@ def generate():
             for p in trimmed_paths:
                 f.write(f"file '{p}'\n")
     except Exception as e:
-        return jsonify({"status": "error", "step": "Liste erstellen", "message": str(e)})
+        return jsonify({"status": "error", "step": "Liste erstellen", "message": str(e)}), 500
 
     concat_path = os.path.join(app.config['CLIPS_FOLDER'], 'concat.mp4')
     try:
@@ -208,7 +228,7 @@ def generate():
             "status": "error",
             "step": "ffmpeg Concat",
             "message": e.stderr.decode('utf-8', errors='ignore')
-        })
+        }), 500
 
     # 7) Audio und Video kombinieren
     output_filename = f"{uuid.uuid4()}.mp4"
@@ -223,7 +243,7 @@ def generate():
             "status": "error",
             "step": "ffmpeg Merge Audio/Video",
             "message": e.stderr.decode('utf-8', errors='ignore')
-        })
+        }), 500
 
     # 8) Thema updaten
     update_topic_score_and_reset_views(topic, increment=1)
@@ -232,7 +252,7 @@ def generate():
         "status": "success",
         "message": f"Video erstellt: {output_filename} mit Stimme: {voice_name}",
         "topic": topic
-    })
+    }), 200
 
 @app.route('/videos/<filename>')
 def get_video(filename):
